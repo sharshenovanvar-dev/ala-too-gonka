@@ -1,0 +1,1321 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ала-Тоо: 3D Мото-экспедиция в горах Кыргызстана</title>
+    <!-- Подключение Tailwind CSS и шрифта Inter -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <!-- Подключение Three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #0b1320;
+        }
+        #game-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+        /* Кинематографичные чёрные полосы для заставки */
+        .letterbox-bar {
+            position: fixed;
+            left: 0;
+            width: 100%;
+            height: 11vh;
+            background: #000000;
+            z-index: 30;
+            transition: transform 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .letterbox-top { top: 0; transform: translateY(0); }
+        .letterbox-bottom { bottom: 0; transform: translateY(0); }
+        .letterbox-hidden-top { transform: translateY(-100%); }
+        .letterbox-hidden-bottom { transform: translateY(100%); }
+
+        /* Стеклянный HUD */
+        .hud-glass {
+            background: rgba(12, 20, 34, 0.62);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+        }
+
+        /* Сенсорные кнопки для мобильных устройств */
+        .touch-btn {
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(8px);
+            border: 2px solid rgba(255, 255, 255, 0.25);
+            transition: transform 0.08s ease, background-color 0.1s ease;
+        }
+        .touch-btn:active, .touch-btn.active {
+            transform: scale(0.92);
+            background: rgba(245, 158, 11, 0.55);
+            border-color: #fbbf24;
+        }
+
+        @keyframes pulseSlow {
+            0%, 100% { opacity: 0.85; }
+            50% { opacity: 1; }
+        }
+        .animate-pulse-slow {
+            animation: pulseSlow 2.5s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <!-- Игровой 3D Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Кинополосы (Letterbox) для длинной вступительной заставки -->
+    <div id="letterbox-top" class="letterbox-bar letterbox-top"></div>
+    <div id="letterbox-bottom" class="letterbox-bar letterbox-bottom"></div>
+
+    <!-- Оверлей кинематографичной заставки -->
+    <div id="intro-overlay" class="fixed inset-0 z-40 pointer-events-none flex flex-col justify-between p-6 md:p-12">
+        <!-- Верхняя панель заставки -->
+        <div class="flex items-center justify-between pt-6 md:pt-8">
+            <div class="flex items-center gap-3 pointer-events-auto">
+                <span class="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-bold tracking-widest uppercase">
+                    Кыргызстан • Тянь-Шань
+                </span>
+                <span id="intro-chapter-badge" class="hidden sm:inline-block px-3 py-1 rounded-full bg-white/10 text-slate-200 text-xs font-semibold">
+                    Глава 1 / 4
+                </span>
+            </div>
+            <button id="skip-intro-btn" class="pointer-events-auto px-5 py-2.5 rounded-full bg-white/15 hover:bg-amber-500 hover:text-slate-950 text-white text-xs sm:text-sm font-bold tracking-wide border border-white/25 transition-all shadow-lg cursor-pointer">
+                ПРОПУСТИТЬ ЗАСТАВКУ (ESC) ⏭
+            </button>
+        </div>
+
+        <!-- Центральный титр заставки -->
+        <div class="my-auto text-center max-w-3xl mx-auto px-4 transition-all duration-700" id="intro-text-box">
+            <p id="intro-subtitle" class="text-amber-400 font-bold tracking-[0.25em] uppercase text-xs sm:text-sm mb-2 drop-shadow">
+                ВЫСОКОГОРЬЕ АЛА-ТОО • 3 850 М
+            </p>
+            <h1 id="intro-title" class="text-3xl sm:text-5xl md:text-6xl font-black text-white tracking-tight leading-tight drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)]">
+                ЗЕМЛЯ НЕБЕСНЫХ ГОР
+            </h1>
+            <p id="intro-desc" class="mt-3 text-slate-200 text-sm sm:text-lg max-w-xl mx-auto font-medium drop-shadow">
+                Здесь нет асфальта и разметки — только дикие тропы чабанов, ледяные ветра перевалов и рев мотора.
+            </p>
+        </div>
+
+        <!-- Нижний прогресс-бар длинной заставки -->
+        <div class="pb-6 md:pb-8 max-w-xl mx-auto w-full">
+            <div class="flex justify-between text-[11px] text-slate-300 font-semibold uppercase tracking-wider mb-1.5">
+                <span id="intro-status">Кинематографическое вступление</span>
+                <span id="intro-timer">00:24</span>
+            </div>
+            <div class="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+                <div id="intro-progress" class="h-full bg-gradient-to-r from-amber-400 via-orange-500 to-rose-500 w-0 transition-all duration-100"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Игровой интерфейс (HUD) -->
+    <div id="game-hud" class="fixed inset-0 z-20 pointer-events-none hidden flex-col justify-between p-3 sm:p-5">
+        <!-- Верхняя панель приборов -->
+        <div class="flex flex-wrap items-start justify-between gap-2">
+            <!-- Левый блок: Скорость, Высота, Прыжки -->
+            <div class="hud-glass rounded-2xl px-4 py-3 text-white flex items-center gap-4 sm:gap-6 shadow-xl">
+                <div>
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Скорость</div>
+                    <div class="text-2xl sm:text-3xl font-black text-amber-400 leading-none mt-0.5">
+                        <span id="hud-speed">0</span> <span class="text-xs font-semibold text-slate-300">км/ч</span>
+                    </div>
+                </div>
+                <div class="h-8 w-px bg-white/15"></div>
+                <div>
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Высота</div>
+                    <div class="text-lg sm:text-xl font-extrabold text-sky-300 leading-none mt-1">
+                        <span id="hud-altitude">2850</span> <span class="text-xs font-normal text-slate-300">м</span>
+                    </div>
+                </div>
+                <div class="h-8 w-px bg-white/15"></div>
+                <div>
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Отряд</div>
+                    <div class="text-sm sm:text-base font-bold text-emerald-300 leading-none mt-1">
+                        3 туриста 🏍️
+                    </div>
+                </div>
+            </div>
+
+            <!-- Правый блок: Кнопки управления графикой, камерой и возвратом -->
+            <div class="flex items-center gap-2 pointer-events-auto">
+                <button id="btn-quality" class="hud-glass hover:bg-white/15 text-amber-300 px-3.5 py-2.5 rounded-xl text-xs font-bold tracking-wide transition cursor-pointer shadow-lg">
+                    ✨ ULTRA HD
+                </button>
+                <button id="btn-reset" class="hud-glass hover:bg-white/15 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold tracking-wide transition cursor-pointer shadow-lg" title="Вернуть мотоцикл и туристов на тропу (R)">
+                    🔄 На тропу (R)
+                </button>
+                <button id="btn-replay-intro" class="hud-glass hover:bg-white/15 text-slate-200 px-3.5 py-2.5 rounded-xl text-xs font-bold tracking-wide transition cursor-pointer shadow-lg">
+                    🎬 Заставка
+                </button>
+            </div>
+        </div>
+
+        <!-- Всплывающее уведомление о событиях (вместо alert) -->
+        <div id="event-banner" class="mx-auto my-auto transform scale-95 opacity-0 transition-all duration-300 pointer-events-none">
+            <div class="hud-glass px-6 py-4 rounded-2xl text-center border border-amber-400/40 shadow-2xl">
+                <div id="event-title" class="text-amber-400 font-black text-lg sm:text-xl tracking-wide uppercase"></div>
+                <div id="event-sub" class="text-slate-200 text-xs sm:text-sm mt-1"></div>
+            </div>
+        </div>
+
+        <!-- Нижняя панель: Нитро и подсказки / сенсорные кнопки -->
+        <div class="flex flex-col gap-3">
+            <!-- Полоска Нитро и индикатор мульти-прыжка -->
+            <div class="mx-auto w-full max-w-md hud-glass rounded-2xl px-4 py-2.5 flex items-center gap-3">
+                <span class="text-xs font-extrabold text-amber-400 uppercase tracking-wider whitespace-nowrap">🔥 Нитро</span>
+                <div class="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden border border-white/10">
+                    <div id="hud-nitro-bar" class="h-full bg-gradient-to-r from-amber-400 to-rose-500 w-full transition-all duration-75"></div>
+                </div>
+                <span id="hud-jumps" class="text-xs font-bold text-sky-300 whitespace-nowrap">Прыжки: 3/3</span>
+            </div>
+
+            <!-- Подсказка управления для ПК -->
+            <div class="hidden md:flex items-center justify-center gap-4 mx-auto hud-glass px-5 py-2.5 rounded-2xl text-xs text-slate-200 font-medium">
+                <span><kbd class="px-2 py-0.5 bg-white/15 rounded font-bold text-amber-300">W / ↑</kbd> Вперёд</span>
+                <span><kbd class="px-2 py-0.5 bg-white/15 rounded font-bold text-amber-300">S / ↓</kbd> Тормоз / Назад</span>
+                <span><kbd class="px-2 py-0.5 bg-white/15 rounded font-bold text-amber-300">A</kbd> Лево / <kbd class="px-2 py-0.5 bg-white/15 rounded font-bold text-amber-300">D</kbd> Право</span>
+                <span><kbd class="px-2 py-0.5 bg-white/15 rounded font-bold text-amber-300">F</kbd> Мульти-прыжок</span>
+                <span><kbd class="px-2 py-0.5 bg-white/15 rounded font-bold text-amber-300">Space</kbd> Нитро</span>
+                <span><kbd class="px-2 py-0.5 bg-white/15 rounded font-bold text-amber-300">Мышь</kbd> Обзор 360°</span>
+            </div>
+
+            <!-- Сенсорные кнопки управления для телефонов и планшетов -->
+            <div class="flex md:hidden items-end justify-between w-full pointer-events-auto pb-2">
+                <!-- Левая рука: Повороты -->
+                <div class="flex gap-3">
+                    <button id="btn-left" class="touch-btn w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg">◀</button>
+                    <button id="btn-right" class="touch-btn w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg">▶</button>
+                </div>
+                <!-- Правая рука: Прыжок, Нитро, Тормоз, Газ -->
+                <div class="flex gap-2 items-end">
+                    <button id="btn-jump" class="touch-btn w-14 h-14 rounded-2xl flex items-center justify-center text-sky-300 text-lg font-black shadow-lg">⬆️</button>
+                    <button id="btn-boost" class="touch-btn w-14 h-14 rounded-2xl flex items-center justify-center text-amber-300 text-xl font-black shadow-lg">🔥</button>
+                    <button id="btn-brake" class="touch-btn w-15 h-16 px-2 rounded-2xl flex items-center justify-center text-rose-300 text-sm font-black shadow-lg">СТОП</button>
+                    <button id="btn-gas" class="touch-btn w-16 h-20 rounded-2xl flex items-center justify-center text-emerald-300 text-lg font-black shadow-lg">ГАЗ</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =========================================================================
+        // 1. ИНИЦИАЛИЗАЦИЯ THREE.JS, РЕНДЕРИНГА ULTRA HD И ОСВЕЩЕНИЯ
+        // =========================================================================
+        const canvas = document.getElementById('game-canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.12;
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x9ec5e6, 0.0014);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.2, 2200);
+
+        let isUltraQuality = true;
+
+        // Градиентный купол высокогорного неба Тянь-Шаня
+        const skyGeo = new THREE.SphereGeometry(1600, 32, 24);
+        const skyCanvas = document.createElement('canvas');
+        skyCanvas.width = 16;
+        skyCanvas.height = 256;
+        const skyCtx = skyCanvas.getContext('2d');
+        const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+        skyGrad.addColorStop(0.0, '#0c2d57');
+        skyGrad.addColorStop(0.35, '#2b6cb0');
+        skyGrad.addColorStop(0.65, '#8ecae6');
+        skyGrad.addColorStop(1.0, '#e0f2fe');
+        skyCtx.fillStyle = skyGrad;
+        skyCtx.fillRect(0, 0, 16, 256);
+        const skyTex = new THREE.CanvasTexture(skyCanvas);
+        const skyDome = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false }));
+        scene.add(skyDome);
+
+        // Трёхточечное освещение высокогорья
+        const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x5c4d3c, 0.85);
+        scene.add(hemiLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.45);
+        sunLight.position.set(180, 290, 140);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 4096;
+        sunLight.shadow.mapSize.height = 4096;
+        sunLight.shadow.camera.near = 20;
+        sunLight.shadow.camera.far = 900;
+        const shadowRange = 220;
+        sunLight.shadow.camera.left = -shadowRange;
+        sunLight.shadow.camera.right = shadowRange;
+        sunLight.shadow.camera.top = shadowRange;
+        sunLight.shadow.camera.bottom = -shadowRange;
+        sunLight.shadow.bias = -0.0004;
+        scene.add(sunLight);
+        scene.add(sunLight.target);
+
+        // Контровой свет от ледников для объёма мотоциклов
+        const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.5);
+        rimLight.position.set(-150, 90, -180);
+        scene.add(rimLight);
+
+        // =========================================================================
+        // 2. ПРОЦЕДУРНЫЙ РЕЛЬЕФ ГОР КЫРГЫЗСТАНА (АЛА-ТОО / ТЯНЬ-ШАНЬ)
+        // =========================================================================
+        function getMountainHeight(x, z) {
+            // Основной горный массив с ущельями и хребтами
+            const ridge1 = Math.sin(x * 0.0055 + Math.cos(z * 0.0045) * 1.4) * 58;
+            const ridge2 = Math.cos(z * 0.0062 - Math.sin(x * 0.0038) * 1.2) * 52;
+            const peaks = Math.abs(Math.sin(x * 0.009) * Math.cos(z * 0.009)) * 75;
+            const bumps = Math.sin(x * 0.045) * Math.cos(z * 0.045) * 2.4 + Math.sin(x * 0.11 + z * 0.09) * 0.75;
+
+            // Извилистая горная тропа кочевников (более проходимая, но с кочками и трамплинами)
+            const trailCenterX = Math.sin(z * 0.018) * 65 + Math.cos(z * 0.007) * 40;
+            const distFromTrail = Math.abs(x - trailCenterX);
+            const trailBlend = THREE.MathUtils.smoothstep(distFromTrail, 6, 48);
+
+            // Плавный подъём тропы в высокогорье
+            const trailElevation = 14 + Math.sin(z * 0.004) * 18 + Math.cos(z * 0.0025) * 14 + Math.sin(z * 0.08) * 0.9;
+            const wildHeight = 18 + ridge1 + ridge2 + peaks + bumps;
+
+            return THREE.MathUtils.lerp(trailElevation, wildHeight, trailBlend);
+        }
+
+        // Создание высокодетализированной сетки гор
+        const terrainSize = 1900;
+        const terrainSegments = 260;
+        const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
+        terrainGeo.rotateX(-Math.PI / 2);
+
+        const posAttr = terrainGeo.attributes.position;
+        const colors = new Float32Array(posAttr.count * 3);
+
+        const colorTrail = new THREE.Color(0x8c7355);   // Каменистая горная тропа
+        const colorMeadow = new THREE.Color(0x4d7c3f);  // Альпийские луга джайлоо
+        const colorRock = new THREE.Color(0x646b73);    // Суровые скалы Тянь-Шаня
+        const colorSnow = new THREE.Color(0xf8fafc);    // Вечные ледники и снег
+
+        for (let i = 0; i < posAttr.count; i++) {
+            const vx = posAttr.getX(i);
+            const vz = posAttr.getZ(i);
+            const vy = getMountainHeight(vx, vz);
+            posAttr.setY(i, vy);
+
+            const trailCenterX = Math.sin(vz * 0.018) * 65 + Math.cos(vz * 0.007) * 40;
+            const distFromTrail = Math.abs(vx - trailCenterX);
+
+            const c = new THREE.Color();
+            if (vy > 72) {
+                c.copy(colorRock).lerp(colorSnow, THREE.MathUtils.smoothstep(vy, 72, 92));
+            } else if (vy > 44) {
+                c.copy(colorMeadow).lerp(colorRock, THREE.MathUtils.smoothstep(vy, 44, 68));
+            } else if (distFromTrail < 7.5) {
+                c.copy(colorTrail).lerp(colorMeadow, THREE.MathUtils.smoothstep(distFromTrail, 3.5, 7.5));
+            } else {
+                c.copy(colorMeadow);
+            }
+
+            // Лёгкая вариация оттенков для реалистичности
+            const shade = 0.92 + Math.sin(vx * 0.15) * Math.cos(vz * 0.15) * 0.08;
+            c.multiplyScalar(shade);
+
+            colors[i * 3] = c.r;
+            colors[i * 3 + 1] = c.g;
+            colors[i * 3 + 2] = c.b;
+        }
+
+        terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        terrainGeo.computeVertexNormals();
+
+        const terrainMat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.88,
+            metalness: 0.04,
+            flatShading: false
+        });
+        const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+        terrainMesh.receiveShadow = true;
+        scene.add(terrainMesh);
+
+        // =========================================================================
+        // 3. АТРИБУТЫ КЫРГЫЗСТАНА: ЮРТЫ, ТЯНЬ-ШАНЬСКИЕ ЕЛИ, ВАЛУНЫ, ОРЛЫ И ОБЛАКА
+        // =========================================================================
+        function createYurt(x, z) {
+            const yurtGroup = new THREE.Group();
+            const y = getMountainHeight(x, z);
+            yurtGroup.position.set(x, y - 0.1, z);
+
+            // Войлочные стены юрты (кереге)
+            const wallGeo = new THREE.CylinderGeometry(3.4, 3.5, 2.3, 20);
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.9 });
+            const wall = new THREE.Mesh(wallGeo, wallMat);
+            wall.position.y = 1.15;
+            wall.castShadow = true;
+            wall.receiveShadow = true;
+            yurtGroup.add(wall);
+
+            // Традиционный красный орнамент-пояс
+            const beltGeo = new THREE.CylinderGeometry(3.46, 3.46, 0.28, 20);
+            const beltMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.7 });
+            const belt = new THREE.Mesh(beltGeo, beltMat);
+            belt.position.y = 1.65;
+            yurtGroup.add(belt);
+
+            // Купол юрты (уук)
+            const roofGeo = new THREE.ConeGeometry(3.55, 1.7, 20);
+            const roof = new THREE.Mesh(roofGeo, wallMat);
+            roof.position.y = 3.15;
+            roof.castShadow = true;
+            yurtGroup.add(roof);
+
+            // Түндүк (деревянный венец на вершине юрты)
+            const tundukGeo = new THREE.TorusGeometry(0.65, 0.1, 8, 16);
+            tundukGeo.rotateX(Math.PI / 2);
+            const woodMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.8 });
+            const tunduk = new THREE.Mesh(tundukGeo, woodMat);
+            tunduk.position.y = 3.95;
+            yurtGroup.add(tunduk);
+
+            // Деревянная дверь (босого)
+            const doorGeo = new THREE.BoxGeometry(1.0, 1.75, 0.25);
+            const door = new THREE.Mesh(doorGeo, woodMat);
+            door.position.set(0, 0.88, 3.4);
+            yurtGroup.add(door);
+
+            scene.add(yurtGroup);
+        }
+
+        // Размещаем аул юрт на живописном джайлоо неподалёку от старта и вдоль маршрута
+        createYurt(22, -38);
+        createYurt(34, -46);
+        createYurt(26, -58);
+        createYurt(-38, -165);
+        createYurt(-25, -178);
+        createYurt(55, -340);
+
+        // Тянь-шаньские ели и скальные валуны
+        const firTrunkMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.9 });
+        const firLeafMat = new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.82 });
+        const rockMat = new THREE.MeshStandardMaterial({ color: 0x57534e, roughness: 0.92, flatShading: true });
+
+        for (let i = 0; i < 240; i++) {
+            const rx = (Math.random() - 0.5) * 1400;
+            const rz = (Math.random() - 0.5) * 1400;
+            const trailX = Math.sin(rz * 0.018) * 65 + Math.cos(rz * 0.007) * 40;
+            if (Math.abs(rx - trailX) < 12) continue; // Не ставим деревья прямо на тропе
+
+            const ry = getMountainHeight(rx, rz);
+            if (ry < 54 && ry > 10) {
+                // Высокая стройная тянь-шаньская ель
+                const tree = new THREE.Group();
+                const scale = 0.85 + Math.random() * 1.1;
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.38, 2.4, 7), firTrunkMat);
+                trunk.position.y = 1.2;
+                tree.add(trunk);
+
+                for (let layer = 0; layer < 4; layer++) {
+                    const cone = new THREE.Mesh(
+                        new THREE.ConeGeometry(2.1 - layer * 0.38, 3.2 - layer * 0.3, 8),
+                        firLeafMat
+                    );
+                    cone.position.y = 2.8 + layer * 1.85;
+                    cone.castShadow = true;
+                    tree.add(cone);
+                }
+                tree.position.set(rx, ry - 0.2, rz);
+                tree.scale.setScalar(scale);
+                scene.add(tree);
+            } else {
+                // Горный валун
+                const boulder = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2 + Math.random() * 2.5, 1), rockMat);
+                boulder.position.set(rx, ry - 0.3, rz);
+                boulder.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+                boulder.scale.set(1 + Math.random(), 0.7 + Math.random() * 0.6, 1 + Math.random());
+                boulder.castShadow = true;
+                boulder.receiveShadow = true;
+                scene.add(boulder);
+            }
+        }
+
+        // Парящие беркуты в небе Кыргызстана
+        const eagles = [];
+        const eagleMat = new THREE.MeshStandardMaterial({ color: 0x292524, roughness: 0.7, side: THREE.DoubleSide });
+        for (let i = 0; i < 8; i++) {
+            const eagle = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.ConeGeometry(0.25, 1.3, 6), eagleMat);
+            body.rotation.x = Math.PI / 2;
+            const leftWing = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.55), eagleMat);
+            leftWing.position.x = -0.95;
+            const rightWing = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.55), eagleMat);
+            rightWing.position.x = 0.95;
+            eagle.add(body, leftWing, rightWing);
+
+            const cx = (Math.random() - 0.5) * 260;
+            const cz = -40 - Math.random() * 320;
+            const cy = 68 + Math.random() * 38;
+            eagle.position.set(cx, cy, cz);
+            scene.add(eagle);
+            eagles.push({ mesh: eagle, leftWing, rightWing, cx, cz, cy, angle: Math.random() * Math.PI * 2, radius: 22 + Math.random() * 25 });
+        }
+
+        // Объёмные горные облака между пиками
+        const clouds = [];
+        const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.82 });
+        for (let i = 0; i < 28; i++) {
+            const cloudGroup = new THREE.Group();
+            const puffs = 3 + Math.floor(Math.random() * 4);
+            for (let p = 0; p < puffs; p++) {
+                const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(12 + Math.random() * 14, 1), cloudMat);
+                puff.position.set((p - puffs / 2) * 14, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 10);
+                puff.scale.set(1.4, 0.55, 1.0);
+                cloudGroup.add(puff);
+            }
+            cloudGroup.position.set((Math.random() - 0.5) * 1400, 125 + Math.random() * 55, (Math.random() - 0.5) * 1400);
+            scene.add(cloudGroup);
+            clouds.push(cloudGroup);
+        }
+
+        // =========================================================================
+        // 4. 3D-МОДЕЛИ ЭНДУРО-МОТОЦИКЛА ИГРОКА И ОТРЯДА ТУРИСТОВ
+        // =========================================================================
+        function buildEnduroBike(primaryColor, helmetColor, hasLuggage = false) {
+            const group = new THREE.Group();
+
+            const frameMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.6, roughness: 0.35 });
+            const bodyMat = new THREE.MeshStandardMaterial({ color: primaryColor, metalness: 0.35, roughness: 0.3 });
+            const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
+            const rimMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.85, roughness: 0.2 });
+            const chromeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.9, roughness: 0.15 });
+
+            // Колёса (переднее расположено в -Z внутри контейнера, после поворота на PI смотрит строго вперёд по +Z)
+            function createWheel() {
+                const wGroup = new THREE.Group();
+                const tire = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.13, 12, 24), tireMat);
+                tire.rotation.y = Math.PI / 2;
+                tire.castShadow = true;
+                const rim = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.04, 8, 20), rimMat);
+                rim.rotation.y = Math.PI / 2;
+                const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.22, 12), frameMat);
+                hub.rotation.z = Math.PI / 2;
+                wGroup.add(tire, rim, hub);
+                return wGroup;
+            }
+
+            const fWheel = createWheel();
+            fWheel.position.set(0, 0.52, -1.05);
+
+            const rWheel = createWheel();
+            rWheel.position.set(0, 0.52, 1.0);
+
+            // Двигатель и рама
+            const engine = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.44, 0.58), frameMat);
+            engine.position.set(0, 0.68, 0.02);
+            engine.castShadow = true;
+
+            // Бензобак и обтекатель
+            const tank = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 0.68), bodyMat);
+            tank.position.set(0, 1.06, -0.26);
+            tank.rotation.x = 0.18;
+            tank.castShadow = true;
+
+            // Сиденье эндуро
+            const seat = new THREE.Mesh(
+                new THREE.BoxGeometry(0.34, 0.16, 0.78),
+                new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85 })
+            );
+            seat.position.set(0, 1.02, 0.38);
+
+            // Заднее крыло и глушитель
+            const rearFender = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.55), bodyMat);
+            rearFender.position.set(0, 1.08, 0.95);
+            rearFender.rotation.x = 0.25;
+
+            const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.85, 10), chromeMat);
+            exhaust.rotation.x = Math.PI / 2 - 0.2;
+            exhaust.position.set(0.23, 0.88, 0.68);
+
+            // Передняя вилка, крыло, руль и фара
+            const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.95, 10), chromeMat);
+            fork.position.set(0, 0.95, -0.82);
+            fork.rotation.x = -0.35;
+
+            const frontFender = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.52), bodyMat);
+            frontFender.position.set(0, 1.06, -1.08);
+            frontFender.rotation.x = -0.15;
+
+            const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.78, 8), frameMat);
+            handlebar.rotation.z = Math.PI / 2;
+            handlebar.position.set(0, 1.36, -0.62);
+
+            const headlight = new THREE.Mesh(
+                new THREE.BoxGeometry(0.24, 0.18, 0.14),
+                new THREE.MeshStandardMaterial({ color: 0xfef08a, emissive: 0xfef08a, emissiveIntensity: 0.9 })
+            );
+            headlight.position.set(0, 1.24, -0.82);
+
+            // Походные гермомешки и рюкзаки для туристов
+            if (hasLuggage) {
+                const bagMat = new THREE.MeshStandardMaterial({ color: 0xeab308, roughness: 0.75 });
+                const leftBag = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 0.46), bagMat);
+                leftBag.position.set(-0.28, 0.95, 0.78);
+                const rightBag = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 0.46), bagMat);
+                rightBag.position.set(0.28, 0.95, 0.78);
+                const topRoll = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.52, 10), new THREE.MeshStandardMaterial({ color: 0x0284c7 }));
+                topRoll.rotation.z = Math.PI / 2;
+                topRoll.position.set(0, 1.22, 0.85);
+                group.add(leftBag, rightBag, topRoll);
+            }
+
+            // Фигура райдера
+            const rider = new THREE.Group();
+            const jacketMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.75 });
+            const pantsMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.85 });
+            const helmetMat = new THREE.MeshStandardMaterial({ color: helmetColor, metalness: 0.3, roughness: 0.25 });
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.56, 0.26), jacketMat);
+            torso.position.set(0, 1.44, 0.15);
+            torso.rotation.x = -0.28;
+            torso.castShadow = true;
+
+            const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 16), helmetMat);
+            helmet.position.set(0, 1.84, 0.02);
+            helmet.castShadow = true;
+
+            const visor = new THREE.Mesh(
+                new THREE.BoxGeometry(0.28, 0.1, 0.14),
+                new THREE.MeshStandardMaterial({ color: 0x0ea5e9, metalness: 0.9, roughness: 0.1 })
+            );
+            visor.position.set(0, 1.84, -0.15);
+
+            const leftArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.56, 8), jacketMat);
+            leftArm.position.set(-0.26, 1.44, -0.24);
+            leftArm.rotation.x = 1.05;
+
+            const rightArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.56, 8), jacketMat);
+            rightArm.position.set(0.26, 1.44, -0.24);
+            rightArm.rotation.x = 1.05;
+
+            const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.62, 8), pantsMat);
+            leftLeg.position.set(-0.22, 0.92, 0.12);
+            leftLeg.rotation.x = -0.2;
+
+            const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.62, 8), pantsMat);
+            rightLeg.position.set(0.22, 0.92, 0.12);
+            rightLeg.rotation.x = -0.2;
+
+            rider.add(torso, helmet, visor, leftArm, rightArm, leftLeg, rightLeg);
+
+            // Разворачиваем внутренний контейнер на 180°, чтобы фара и переднее колесо смотрели строго вперёд по +Z (вдоль heading)
+            const modelContainer = new THREE.Group();
+            modelContainer.rotation.y = Math.PI;
+            modelContainer.add(fWheel, rWheel, engine, tank, seat, rearFender, fork, frontFender, handlebar, headlight, exhaust, rider);
+            group.add(modelContainer);
+
+            return { group, fWheel, rWheel, rider };
+        }
+
+        // Мотоцикл игрока (ярко-оранжевый эндуро)
+        const playerBike = buildEnduroBike(0xf97316, 0xfbbf24, false);
+        const motorcycleGroup = playerBike.group;
+        const frontWheel = playerBike.fWheel;
+        const rearWheel = playerBike.rWheel;
+        scene.add(motorcycleGroup);
+
+        // Отряд из 3 туристов на эндуро-мотоциклах позади игрока
+        const touristConfigs = [
+            { color: 0x0ea5e9, helmet: 0xf8fafc, followDist: 6.5, lateralOffset: -3.2 },
+            { color: 0x10b981, helmet: 0xfef08a, followDist: 8.5, lateralOffset: 3.4 },
+            { color: 0xe11d48, helmet: 0x38bdf8, followDist: 12.5, lateralOffset: 0.2 }
+        ];
+
+        const tourists = touristConfigs.map((cfg) => {
+            const bike = buildEnduroBike(cfg.color, cfg.helmet, true);
+            scene.add(bike.group);
+            return {
+                ...cfg,
+                group: bike.group,
+                fWheel: bike.fWheel,
+                rWheel: bike.rWheel,
+                pos: new THREE.Vector3(cfg.lateralOffset, 15, cfg.followDist),
+                heading: Math.PI,
+                speed: 0,
+                wheelSpin: 0
+            };
+        });
+
+        // Система частиц горной пыли и снега из-под колёс
+        const dustParticles = [];
+        const dustGeo = new THREE.DodecahedronGeometry(0.28, 0);
+        for (let i = 0; i < 90; i++) {
+            const mat = new THREE.MeshBasicMaterial({ color: 0xc2a887, transparent: true, opacity: 0.65 });
+            const mesh = new THREE.Mesh(dustGeo, mat);
+            mesh.visible = false;
+            scene.add(mesh);
+            dustParticles.push({ mesh, life: 0, maxLife: 0.6, vel: new THREE.Vector3() });
+        }
+
+        function spawnDustFromBike(pos, heading, speed, isSnow) {
+            if (Math.abs(speed) < 4) return;
+            for (let i = 0; i < dustParticles.length; i++) {
+                const p = dustParticles[i];
+                if (p.life <= 0) {
+                    p.life = 0.45 + Math.random() * 0.35;
+                    p.maxLife = p.life;
+                    p.mesh.visible = true;
+                    p.mesh.material.color.setHex(isSnow ? 0xf8fafc : 0xc2a887);
+                    p.mesh.material.opacity = 0.65;
+                    p.mesh.position.set(
+                        pos.x - Math.sin(heading) * 1.1 + (Math.random() - 0.5) * 0.5,
+                        pos.y + 0.25,
+                        pos.z - Math.cos(heading) * 1.1 + (Math.random() - 0.5) * 0.5
+                    );
+                    p.mesh.scale.setScalar(0.5 + Math.random() * 0.7);
+                    p.vel.set(
+                        (Math.random() - 0.5) * 2.5,
+                        1.4 + Math.random() * 2.2,
+                        (Math.random() - 0.5) * 2.5
+                    );
+                    break;
+                }
+            }
+        }
+
+        // =========================================================================
+        // 5. ФИЗИКА МОТОЦИКЛА, МУЛЬТИ-ПРЫЖОК (F) И ИИ ТУРИСТОВ
+        // =========================================================================
+        const bikeState = {
+            pos: new THREE.Vector3(0, 15, 0),
+            vel: new THREE.Vector3(0, 0, 0),
+            heading: Math.PI, // Направление вперёд в горы (-Z)
+            speed: 0,
+            steerAngle: 0,
+            leanAngle: 0,
+            pitchAngle: 0,
+            wheelSpin: 0,
+            grounded: true,
+            jumpCount: 0,
+            maxJumps: 3, // Мульти-прыжок на клавишу F (до 3 прыжков подряд)
+            nitroEnergy: 100
+        };
+
+        const input = {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false,
+            boost: false
+        };
+
+        // Свободная орбитальная камера с обзором 360° мышью
+        const camOrbit = {
+            yawOffset: 0,
+            pitch: 0.24,
+            distance: 7.8,
+            isDragging: false,
+            lastX: 0,
+            lastY: 0
+        };
+
+        // Процедурный звук двигателя (Web Audio API без внешних файлов)
+        let audioCtx = null;
+        let engineOsc = null;
+        let engineGain = null;
+
+        function initAudio() {
+            if (audioCtx) return;
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+                engineOsc = audioCtx.createOscillator();
+                engineGain = audioCtx.createGain();
+                engineOsc.type = 'sawtooth';
+                engineOsc.frequency.value = 48;
+                engineGain.gain.value = 0.03;
+
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 260;
+
+                engineOsc.connect(filter);
+                filter.connect(engineGain);
+                engineGain.connect(audioCtx.destination);
+                engineOsc.start();
+            } catch (e) {
+                // Игнорируем, если браузер ограничивает автозапуск аудио
+            }
+        }
+
+        function updateEngineSound() {
+            if (!audioCtx || !engineOsc || !engineGain) return;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const speedRatio = Math.min(1, Math.abs(bikeState.speed) / 36);
+            engineOsc.frequency.setTargetAtTime(44 + speedRatio * 115 + (input.boost ? 25 : 0), audioCtx.currentTime, 0.08);
+            engineGain.gain.setTargetAtTime(isIntroPlaying ? 0.015 : 0.035 + speedRatio * 0.04, audioCtx.currentTime, 0.1);
+        }
+
+        // Уведомление на экране (вместо alert)
+        let bannerTimeout = null;
+        function showEventBanner(title, sub) {
+            const banner = document.getElementById('event-banner');
+            document.getElementById('event-title').textContent = title;
+            document.getElementById('event-sub').textContent = sub;
+            banner.classList.remove('opacity-0', 'scale-95');
+            banner.classList.add('opacity-100', 'scale-100');
+            clearTimeout(bannerTimeout);
+            bannerTimeout = setTimeout(() => {
+                banner.classList.remove('opacity-100', 'scale-100');
+                banner.classList.add('opacity-0', 'scale-95');
+            }, 3400);
+        }
+
+        // Мульти-прыжок на клавишу F
+        function triggerMultiJump() {
+            if (isIntroPlaying) return;
+            initAudio();
+            if (bikeState.grounded || bikeState.jumpCount < bikeState.maxJumps) {
+                bikeState.vel.y = bikeState.grounded ? 12.8 : 11.2;
+                bikeState.grounded = false;
+                bikeState.jumpCount++;
+                for (let k = 0; k < 6; k++) {
+                    spawnDustFromBike(bikeState.pos, bikeState.heading, 18, bikeState.pos.y > 72);
+                }
+            }
+        }
+
+        // Возврат мотоцикла и отряда туристов на горную тропу
+        function resetBikeToTrail(silent = false) {
+            const z = bikeState.pos.z || 0;
+            const trailX = Math.sin(z * 0.018) * 65 + Math.cos(z * 0.007) * 40;
+            const y = getMountainHeight(trailX, z);
+
+            bikeState.pos.set(trailX, y + 0.1, z);
+            bikeState.vel.set(0, 0, 0);
+            bikeState.speed = 0;
+            bikeState.heading = Math.PI;
+            bikeState.leanAngle = 0;
+            bikeState.grounded = true;
+            bikeState.jumpCount = 0;
+
+            tourists.forEach((t) => {
+                const tz = z + t.followDist;
+                const tx = Math.sin(tz * 0.018) * 65 + Math.cos(tz * 0.007) * 40 + t.lateralOffset;
+                const ty = getMountainHeight(tx, tz);
+                t.pos.set(tx, ty + 0.1, tz);
+                t.heading = Math.PI;
+                t.speed = 0;
+            });
+
+            if (!silent) {
+                showEventBanner("ВОЗВРАТ НА ТРОПУ", "Вы и отряд туристов снова на горной тропе Ала-Тоо!");
+            }
+        }
+
+        function updatePlayerAndTourists(dt) {
+            // 1. Газ (W / ↑), Тормоз / Задний ход (S / ↓) и Нитро (Space)
+            const isBoosting = input.boost && input.forward && bikeState.nitroEnergy > 2;
+            if (isBoosting) {
+                bikeState.nitroEnergy = Math.max(0, bikeState.nitroEnergy - 28 * dt);
+            } else {
+                bikeState.nitroEnergy = Math.min(100, bikeState.nitroEnergy + 14 * dt);
+            }
+
+            const maxSpeed = isBoosting ? 38 : 26;
+            const accel = isBoosting ? 24 : 15;
+
+            if (input.forward) {
+                bikeState.speed = Math.min(maxSpeed, bikeState.speed + accel * dt);
+            } else if (input.backward) {
+                if (bikeState.speed > 0.5) {
+                    bikeState.speed = Math.max(0, bikeState.speed - 28 * dt); // Эффективное торможение
+                } else {
+                    bikeState.speed = Math.max(-10, bikeState.speed - 11 * dt); // Задний ход
+                }
+            } else {
+                // Естественное сопротивление грунта
+                bikeState.speed = THREE.MathUtils.lerp(bikeState.speed, 0, 1.8 * dt);
+            }
+
+            // 2. Поворот руля (A — лево, D — право) и наклон корпуса
+            const steerTarget = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+            bikeState.steerAngle = THREE.MathUtils.lerp(bikeState.steerAngle, steerTarget * 0.44, 8 * dt);
+
+            if (Math.abs(bikeState.speed) > 0.35) {
+                const turnDir = bikeState.speed >= 0 ? 1 : -1;
+                bikeState.heading += bikeState.steerAngle * 2.15 * turnDir * dt;
+            }
+
+            const targetLean = bikeState.steerAngle * Math.min(1, Math.abs(bikeState.speed) / 14) * 0.65;
+            bikeState.leanAngle = THREE.MathUtils.lerp(bikeState.leanAngle, targetLean, 9 * dt);
+
+            // 3. Вектор движения строго вперёд по направлению heading
+            const forwardX = Math.sin(bikeState.heading);
+            const forwardZ = Math.cos(bikeState.heading);
+
+            const hCurrent = getMountainHeight(bikeState.pos.x, bikeState.pos.z);
+            const hAhead = getMountainHeight(bikeState.pos.x + forwardX * 1.5, bikeState.pos.z + forwardZ * 1.5);
+            const slope = (hAhead - hCurrent) / 1.5;
+
+            // Влияние крутизны горного подъёма и спуска
+            if (bikeState.grounded) {
+                bikeState.speed -= slope * 9.0 * dt;
+            }
+
+            bikeState.pos.x += forwardX * bikeState.speed * dt;
+            bikeState.pos.z += forwardZ * bikeState.speed * dt;
+
+            bikeState.pos.x = THREE.MathUtils.clamp(bikeState.pos.x, -850, 850);
+            bikeState.pos.z = THREE.MathUtils.clamp(bikeState.pos.z, -850, 850);
+
+            // 4. Вертикальная физика, мульти-прыжок и приземление
+            const groundY = getMountainHeight(bikeState.pos.x, bikeState.pos.z);
+            bikeState.vel.y -= 24 * dt;
+            bikeState.pos.y += bikeState.vel.y * dt;
+
+            if (bikeState.pos.y <= groundY) {
+                const prevVelY = bikeState.vel.y;
+                bikeState.pos.y = groundY;
+                if (slope < -0.26 && bikeState.speed > 16 && prevVelY < -2) {
+                    bikeState.vel.y = Math.min(8, Math.abs(slope) * bikeState.speed * 0.35);
+                    bikeState.grounded = false;
+                } else {
+                    bikeState.vel.y = 0;
+                    bikeState.grounded = true;
+                    bikeState.jumpCount = 0;
+                }
+            } else {
+                bikeState.grounded = false;
+            }
+
+            // 5. Выравнивание 3D-модели мотоцикла игрока по рельефу
+            const targetPitch = Math.atan(slope);
+            bikeState.pitchAngle = THREE.MathUtils.lerp(bikeState.pitchAngle, targetPitch, 10 * dt);
+
+            motorcycleGroup.position.copy(bikeState.pos);
+            motorcycleGroup.rotation.order = 'YXZ';
+            motorcycleGroup.rotation.y = bikeState.heading;
+            motorcycleGroup.rotation.x = -bikeState.pitchAngle;
+            motorcycleGroup.rotation.z = bikeState.leanAngle;
+
+            bikeState.wheelSpin -= (bikeState.speed * dt) / 0.42;
+            frontWheel.rotation.x = bikeState.wheelSpin;
+            rearWheel.rotation.x = bikeState.wheelSpin;
+            frontWheel.rotation.y = bikeState.steerAngle;
+
+            if (bikeState.grounded && Math.abs(bikeState.speed) > 6) {
+                spawnDustFromBike(bikeState.pos, bikeState.heading, bikeState.speed, bikeState.pos.y > 72);
+            }
+
+            // 6. Обновление отряда туристов, едущих за игроком
+            const rightX = Math.cos(bikeState.heading);
+            const rightZ = -Math.sin(bikeState.heading);
+
+            tourists.forEach((t, idx) => {
+                // Целевая точка в строю позади игрока
+                const targetX = bikeState.pos.x - forwardX * t.followDist + rightX * t.lateralOffset;
+                const targetZ = bikeState.pos.z - forwardZ * t.followDist + rightZ * t.lateralOffset;
+
+                const dx = targetX - t.pos.x;
+                const dz = targetZ - t.pos.z;
+                const dist = Math.hypot(dx, dz);
+
+                if (dist > 0.6) {
+                    const desiredHeading = Math.atan2(dx, dz);
+                    let diff = desiredHeading - t.heading;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    t.heading += diff * Math.min(1, 5.5 * dt);
+                }
+
+                const desiredSpeed = dist > 2.2 ? Math.min(34, dist * 3.2) : Math.max(0, bikeState.speed * 0.9);
+                t.speed = THREE.MathUtils.lerp(t.speed, desiredSpeed, 4.5 * dt);
+
+                const tFwdX = Math.sin(t.heading);
+                const tFwdZ = Math.cos(t.heading);
+                t.pos.x += tFwdX * t.speed * dt;
+                t.pos.z += tFwdZ * t.speed * dt;
+
+                const ty = getMountainHeight(t.pos.x, t.pos.z);
+                const tyAhead = getMountainHeight(t.pos.x + tFwdX * 1.4, t.pos.z + tFwdZ * 1.4);
+                const tSlope = Math.atan((tyAhead - ty) / 1.4);
+
+                t.pos.y = THREE.MathUtils.lerp(t.pos.y, ty, 14 * dt);
+                t.group.position.copy(t.pos);
+                t.group.rotation.order = 'YXZ';
+                t.group.rotation.y = t.heading;
+                t.group.rotation.x = -tSlope;
+
+                t.wheelSpin -= (t.speed * dt) / 0.42;
+                t.fWheel.rotation.x = t.wheelSpin;
+                t.rWheel.rotation.x = t.wheelSpin;
+
+                if (t.speed > 7 && idx % 2 === 0) {
+                    spawnDustFromBike(t.pos, t.heading, t.speed, t.pos.y > 72);
+                }
+            });
+
+            // Смещение тени солнца за игроком
+            sunLight.position.set(bikeState.pos.x + 180, bikeState.pos.y + 290, bikeState.pos.z + 140);
+            sunLight.target.position.copy(bikeState.pos);
+        }
+
+        // =========================================================================
+        // 6. ДЛИННАЯ КИНЕМАТОГРАФИЧНАЯ ЗАСТАВКА (24 СЕКУНДЫ, 4 ГЛАВЫ)
+        // =========================================================================
+        let isIntroPlaying = true;
+        let introElapsed = 0;
+        const INTRO_DURATION = 24.0;
+
+        const introChapters = [
+            {
+                time: 0,
+                badge: "Глава 1 / 4",
+                sub: "ВЫСОКОГОРЬЕ АЛА-ТОО • 3 850 М",
+                title: "ЗЕМЛЯ НЕБЕСНЫХ ГОР",
+                desc: "Здесь нет асфальта и разметки — только дикие тропы чабанов, ледяные ветра перевалов и рев мотора."
+            },
+            {
+                time: 6,
+                badge: "Глава 2 / 4",
+                sub: "ДОЛИНА ДЖАЙЛОО • ЮРТЫ КОЧЕВНИКОВ",
+                title: "ДУХ СВОБОДЫ ТЯНЬ-ШАНЯ",
+                desc: "Мимо белых юрт и парящих беркутов пролегает путь сквозь альпийские луга и суровые скалы."
+            },
+            {
+                time: 12,
+                badge: "Глава 3 / 4",
+                sub: "МОТО-ЭКСПЕДИЦИЯ • ОТРЯД В СБОРЕ",
+                title: "ВМЕСТЕ НА ВЕРШИНУ",
+                desc: "Трое отважных туристов на эндуро-байках следуют за тобой по пятам сквозь горное бездорожье."
+            },
+            {
+                time: 18,
+                badge: "Глава 4 / 4",
+                sub: "СТАРТ МАРШРУТА • ПОЛНЫЙ ГАЗ",
+                title: "ПОКОРИ ПЕРЕВАЛ!",
+                desc: "Жми W или ↑ чтобы рвануть вперёд, F для мульти-прыжка и Space для нитро-ускорения!"
+            }
+        ];
+
+        let currentChapterIdx = -1;
+
+        function startIntroSequence() {
+            isIntroPlaying = true;
+            introElapsed = 0;
+            currentChapterIdx = -1;
+            resetBikeToTrail(true);
+
+            document.getElementById('intro-overlay').classList.remove('hidden');
+            document.getElementById('game-hud').classList.add('hidden');
+            document.getElementById('game-hud').classList.remove('flex');
+            document.getElementById('letterbox-top').classList.remove('letterbox-hidden-top');
+            document.getElementById('letterbox-bottom').classList.remove('letterbox-hidden-bottom');
+        }
+
+        function finishIntroSequence() {
+            isIntroPlaying = false;
+            document.getElementById('intro-overlay').classList.add('hidden');
+            document.getElementById('game-hud').classList.remove('hidden');
+            document.getElementById('game-hud').classList.add('flex');
+            document.getElementById('letterbox-top').classList.add('letterbox-hidden-top');
+            document.getElementById('letterbox-bottom').classList.add('letterbox-hidden-bottom');
+
+            showEventBanner("ЭКСПЕДИЦИЯ НАЧАЛАСЬ!", "W / ↑ — Вперёд • A / D — Повороты • F — Мульти-прыжок");
+        }
+
+        function updateIntroCinematic(dt) {
+            introElapsed += dt;
+            if (introElapsed >= INTRO_DURATION) {
+                finishIntroSequence();
+                return;
+            }
+
+            // Обновление титров по главам
+            let activeIdx = 0;
+            for (let i = 0; i < introChapters.length; i++) {
+                if (introElapsed >= introChapters[i].time) activeIdx = i;
+            }
+            if (activeIdx !== currentChapterIdx) {
+                currentChapterIdx = activeIdx;
+                const ch = introChapters[activeIdx];
+                document.getElementById('intro-chapter-badge').textContent = ch.badge;
+                document.getElementById('intro-subtitle').textContent = ch.sub;
+                document.getElementById('intro-title').textContent = ch.title;
+                document.getElementById('intro-desc').textContent = ch.desc;
+            }
+
+            // Прогресс-бар и таймер
+            const pct = Math.min(100, (introElapsed / INTRO_DURATION) * 100);
+            document.getElementById('intro-progress').style.width = `${pct}%`;
+            const rem = Math.max(0, Math.ceil(INTRO_DURATION - introElapsed));
+            document.getElementById('intro-timer').textContent = `00:${rem < 10 ? '0' + rem : rem}`;
+
+            // Кинематографичный пролёт камеры через 4 ракурса
+            const p = bikeState.pos;
+            if (introElapsed < 6) {
+                // Глава 1: Высокий панорамный облёт вершин Тянь-Шаня
+                const t = introElapsed / 6;
+                camera.position.set(p.x - 45 + t * 55, p.y + 42 - t * 14, p.z - 65 + t * 30);
+                camera.lookAt(p.x + 15, p.y + 12, p.z - 40);
+            } else if (introElapsed < 12) {
+                // Глава 2: Пролёт над юртами джайлоо
+                const t = (introElapsed - 6) / 6;
+                camera.position.set(38 - t * 24, p.y + 14 - t * 4, -30 - t * 22);
+                camera.lookAt(24, p.y + 4, -46);
+            } else if (introElapsed < 18) {
+                // Глава 3: Проезд вдоль отряда туристов на мотоциклах
+                const t = (introElapsed - 12) / 6;
+                camera.position.set(p.x + 7.5 - t * 3, p.y + 3.2, p.z + 13 - t * 14);
+                camera.lookAt(p.x, p.y + 1.5, p.z + 2);
+            } else {
+                // Глава 4: Плавный выход камеры за спину гонщика к игровому ракурсу
+                const t = (introElapsed - 18) / 6;
+                const smoothT = t * t * (3 - 2 * t);
+                const startPos = new THREE.Vector3(p.x + 4.5, p.y + 2.6, p.z - 3.5);
+                const endPos = new THREE.Vector3(
+                    p.x - Math.sin(bikeState.heading) * camOrbit.distance,
+                    p.y + 3.2,
+                    p.z - Math.cos(bikeState.heading) * camOrbit.distance
+                );
+                camera.position.lerpVectors(startPos, endPos, smoothT);
+                camera.lookAt(p.x, p.y + 1.4, p.z - 4);
+            }
+        }
+
+        // =========================================================================
+        // 7. ОБРАБОТЧИКИ УПРАВЛЕНИЯ (КЛАВИАТУРА, МЫШЬ, ТАЧСКРИН)
+        // =========================================================================
+        function setupControls() {
+            window.addEventListener('keydown', (e) => {
+                initAudio();
+                if (e.code === 'KeyW' || e.code === 'ArrowUp') input.forward = true;
+                if (e.code === 'KeyS' || e.code === 'ArrowDown') input.backward = true;
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') input.left = true;
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') input.right = true;
+                if (e.code === 'KeyF' && !e.repeat) triggerMultiJump();
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                    input.boost = true;
+                }
+                if (e.code === 'KeyR' && !isIntroPlaying) resetBikeToTrail();
+                if (e.code === 'Escape' && isIntroPlaying) finishIntroSequence();
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if (e.code === 'KeyW' || e.code === 'ArrowUp') input.forward = false;
+                if (e.code === 'KeyS' || e.code === 'ArrowDown') input.backward = false;
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') input.left = false;
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') input.right = false;
+                if (e.code === 'Space') input.boost = false;
+            });
+
+            // Вращение камеры мышью на 360°
+            canvas.addEventListener('mousedown', (e) => {
+                initAudio();
+                camOrbit.isDragging = true;
+                camOrbit.lastX = e.clientX;
+                camOrbit.lastY = e.clientY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!camOrbit.isDragging) return;
+                const dx = e.clientX - camOrbit.lastX;
+                const dy = e.clientY - camOrbit.lastY;
+                camOrbit.lastX = e.clientX;
+                camOrbit.lastY = e.clientY;
+
+                camOrbit.yawOffset -= dx * 0.0065;
+                camOrbit.pitch = THREE.MathUtils.clamp(camOrbit.pitch + dy * 0.005, 0.06, 0.85);
+            });
+
+            window.addEventListener('mouseup', () => {
+                camOrbit.isDragging = false;
+            });
+
+            // Привязка сенсорных кнопок для мобильных устройств
+            function bindTouchBtn(id, key) {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                const press = (e) => {
+                    e.preventDefault();
+                    initAudio();
+                    input[key] = true;
+                    btn.classList.add('active');
+                };
+                const release = (e) => {
+                    e.preventDefault();
+                    input[key] = false;
+                    btn.classList.remove('active');
+                };
+                btn.addEventListener('touchstart', press, { passive: false });
+                btn.addEventListener('touchend', release, { passive: false });
+                btn.addEventListener('mousedown', press);
+                btn.addEventListener('mouseup', release);
+                btn.addEventListener('mouseleave', release);
+            }
+
+            bindTouchBtn('btn-left', 'left');
+            bindTouchBtn('btn-right', 'right');
+            bindTouchBtn('btn-gas', 'forward');
+            bindTouchBtn('btn-brake', 'backward');
+            bindTouchBtn('btn-boost', 'boost');
+
+            const jumpBtn = document.getElementById('btn-jump');
+            if (jumpBtn) {
+                const onJumpPress = (e) => {
+                    e.preventDefault();
+                    triggerMultiJump();
+                    jumpBtn.classList.add('active');
+                };
+                const onJumpRelease = (e) => {
+                    e.preventDefault();
+                    jumpBtn.classList.remove('active');
+                };
+                jumpBtn.addEventListener('touchstart', onJumpPress, { passive: false });
+                jumpBtn.addEventListener('touchend', onJumpRelease, { passive: false });
+                jumpBtn.addEventListener('mousedown', onJumpPress);
+                jumpBtn.addEventListener('mouseup', onJumpRelease);
+            }
+
+            // Кнопки HUD
+            document.getElementById('skip-intro-btn').addEventListener('click', () => {
+                initAudio();
+                finishIntroSequence();
+            });
+
+            document.getElementById('btn-replay-intro').addEventListener('click', () => {
+                startIntroSequence();
+            });
+
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                resetBikeToTrail();
+            });
+
+            document.getElementById('btn-quality').addEventListener('click', (e) => {
+                isUltraQuality = !isUltraQuality;
+                if (isUltraQuality) {
+                    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                    renderer.shadowMap.enabled = true;
+                    e.target.textContent = '✨ ULTRA HD';
+                    showEventBanner("ГРАФИКА: ULTRA HD", "Тени 4K и максимальная детализация гор Тянь-Шаня");
+                } else {
+                    renderer.setPixelRatio(1);
+                    renderer.shadowMap.enabled = false;
+                    e.target.textContent = '⚡ HIGH FPS';
+                    showEventBanner("ГРАФИКА: HIGH FPS", "Оптимизированный режим для максимальной плавности");
+                }
+            });
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        // =========================================================================
+        // 8. ГЛАВНЫЙ ИГРОВОЙ ЦИКЛ
+        // =========================================================================
+        let lastTime = performance.now();
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+            const dt = Math.min(0.05, (now - lastTime) / 1000);
+            lastTime = now;
+
+            // Анимация орлов и облаков
+            eagles.forEach((eg) => {
+                eg.angle += 0.35 * dt;
+                eg.mesh.position.x = eg.cx + Math.cos(eg.angle) * eg.radius;
+                eg.mesh.position.z = eg.cz + Math.sin(eg.angle) * eg.radius;
+                eg.mesh.rotation.y = -eg.angle;
+                const flap = Math.sin(now * 0.008 + eg.angle) * 0.35;
+                eg.leftWing.rotation.z = flap;
+                eg.rightWing.rotation.z = -flap;
+            });
+
+            clouds.forEach((cl) => {
+                cl.position.x += 1.4 * dt;
+                if (cl.position.x > 750) cl.position.x = -750;
+            });
+
+            // Обновление частиц пыли
+            dustParticles.forEach((p) => {
+                if (p.life > 0) {
+                    p.life -= dt;
+                    p.mesh.position.addScaledVector(p.vel, dt);
+                    p.mesh.scale.addScalar(1.2 * dt);
+                    p.mesh.material.opacity = Math.max(0, (p.life / p.maxLife) * 0.6);
+                    if (p.life <= 0) p.mesh.visible = false;
+                }
+            });
+
+            if (isIntroPlaying) {
+                // Во время заставки ставим мотоцикл и туристов красиво на тропе
+                motorcycleGroup.position.copy(bikeState.pos);
+                motorcycleGroup.rotation.y = bikeState.heading;
+                tourists.forEach((t) => {
+                    t.group.position.copy(t.pos);
+                    t.group.rotation.y = t.heading;
+                });
+                updateIntroCinematic(dt);
+            } else {
+                updatePlayerAndTourists(dt);
+
+                // Плавное следование камеры за мотоциклом игрока
+                if (!camOrbit.isDragging && Math.abs(bikeState.speed) > 2) {
+                    camOrbit.yawOffset = THREE.MathUtils.lerp(camOrbit.yawOffset, 0, 2.5 * dt);
+                }
+
+                const camAngle = bikeState.heading + camOrbit.yawOffset;
+                const horizDist = Math.cos(camOrbit.pitch) * camOrbit.distance;
+                const vertDist = Math.sin(camOrbit.pitch) * camOrbit.distance + 1.4;
+
+                const desiredCamX = bikeState.pos.x - Math.sin(camAngle) * horizDist;
+                const desiredCamZ = bikeState.pos.z - Math.cos(camAngle) * horizDist;
+                const groundAtCam = getMountainHeight(desiredCamX, desiredCamZ);
+                const desiredCamY = Math.max(groundAtCam + 1.5, bikeState.pos.y + vertDist);
+
+                camera.position.lerp(new THREE.Vector3(desiredCamX, desiredCamY, desiredCamZ), 10 * dt);
+                camera.lookAt(
+                    bikeState.pos.x + Math.sin(bikeState.heading) * 3.5,
+                    bikeState.pos.y + 1.35,
+                    bikeState.pos.z + Math.cos(bikeState.heading) * 3.5
+                );
+
+                // Обновление приборов HUD
+                document.getElementById('hud-speed').textContent = Math.round(Math.abs(bikeState.speed) * 3.6);
+                document.getElementById('hud-altitude').textContent = Math.round(2800 + bikeState.pos.y * 16);
+                document.getElementById('hud-nitro-bar').style.width = `${bikeState.nitroEnergy}%`;
+                document.getElementById('hud-jumps').textContent = `Прыжки: ${bikeState.maxJumps - bikeState.jumpCount}/${bikeState.maxJumps}`;
+            }
+
+            updateEngineSound();
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function () {
+            setupControls();
+            startIntroSequence();
+            lastTime = performance.now();
+            animate(lastTime);
+        };
+    </script>
+</body>
+</html>
